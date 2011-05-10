@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>Boss</title>
+  <style>
+    * {margin: 0; padding: 0;}
+    .table {width: 500px; height: 500px; background-color: #dff;}
+    .seat {border: 1px solid silver; background-color: #efe;}
+    .seat, #console {text-align: center; display: block; color: silver; width: 100px; height: 100px; position: absolute;}
+    .seat.taken  {border: 2px solid black; }
+    .seat.taken.friend {border: 2px solid green; }
+    .seat.taken.friend .action {color: green; }
+    .seat.taken.fired {border: 2px solid red; }
+    .seat.taken.fired .action {color: red; }
+    .seat.my {color: black; }
+    #console {left: 200px; top: 200px;}
+    #role.boss   {background-color: #fee; color: black;}
+    #role.medium   {background-color: orange; color: black;}
+    #role.high   {background-color: green; color: black;}
+    .seat:nth-child(1) {left: 200px; top: 400px;}
+    .seat:nth-child(2) {left:   0px; top: 400px;}
+    .seat:nth-child(3) {left:   0px; top: 200px;}
+    .seat:nth-child(4) {left:   0px; top:   0px;}
+    .seat:nth-child(5) {left: 200px; top:   0px;}
+    .seat:nth-child(6) {left: 400px; top:   0px;}
+    .seat:nth-child(7) {left: 400px; top: 200px;}
+    .seat:nth-child(8) {left: 400px; top: 400px;}
+  </style>
+  <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.5.1/jquery.min.js"></script>
+  <script src="http://10.0.3.33:8080/socket.io/socket.io.js"></script> 
+  <script>
+    var socket = new io.Socket('10.0.3.33', {port:8080});
+    socket.connect();
+    
+    socket.on('connect_failed', function(){
+        alert('The connection to the server failed.')
+    });
+    
+    socket.on('message', function(msg){
+        if(msg.new_player != undefined) {
+            draw_table(msg.new_player.total_seats, msg.new_player.nicknames, msg.new_player.my_seat); 
+        } else if(msg.seat_taken != undefined) {
+            occupy_seat(msg.seat_taken.seat, msg.seat_taken.nickname); 
+        } else if(msg.target_taken != undefined) {
+            disable_target(msg.target_taken); 
+        } else if(msg.friend != undefined) {
+            set_friend(msg.friend); 
+        } else if(msg.role != undefined) {
+            update_role(msg.role.is_boss); 
+        } else if(msg.powers != undefined) {
+            update_powers(msg.powers.medium, msg.powers.high); 
+        } else if(msg.turn != undefined) {
+            update_turn(msg.turn); 
+        } else if(msg.fired != undefined) {
+            set_fired(msg.fired); 
+        } else if(msg.flash != undefined) {
+            update_flash(msg.flash); 
+        } else if(msg.nickname != undefined) {
+            ask_nickname(msg.nickname.question, msg.nickname.suggest); 
+        } else if(msg.outcome != undefined) {
+            end_game(msg.outcome); 
+        } else if(msg.message != undefined) {
+            append_message(msg.message); 
+        }
+
+    });
+    
+    function draw_table(total_seats, nicknames, my_seat) {
+        var table = '<ul class="table">';
+        table += '<li class="my seat" id="seat-' + my_seat + '"><div class="nickname">your seat</div><div class="action"></div></li>';
+        for(var i = (my_seat + 1) % total_seats; i != my_seat; i = (i + 1) % total_seats)
+            table += '<li class="seat" id="seat-' + i + '"><div class="nickname"></div><div class="action"></div></li>';
+        table += '</ul>';
+        $('body').append(table);
+        update_flash('Welcome');
+        var nicknames = nicknames.split(',');
+        for(var i = 0; i <= my_seat; i++)
+            if(nicknames[i] === undefined)
+                occupy_seat(i, "empty seat");
+            else
+                occupy_seat(i, nicknames[i]);
+    }
+
+    function count_empty_seats() {
+        return $('.seat:not(.taken)').length;
+    }
+
+    function update_flash(text) {
+        $('#status').html(text);
+    }
+
+    function append_message(text) {
+        $('body').append(message);
+    }
+
+    function update_role(is_boss) {
+        if(is_boss)
+            $('#role').addClass('boss').html('You are the boss');
+        else
+            $('#role').html("Watch out for the boss");
+    }
+
+    function ask_nickname(question, suggest) {
+        socket.send({nickname: prompt(question, suggest)})
+    }
+
+    function occupy_seat(seat, nickname) {
+        $('#seat-' + seat).addClass('taken');
+        $('#seat-' + seat + ' .nickname').html(nickname);
+        update_flash('Waiting for ' + count_empty_seats() + ' more players to join');
+    }
+
+    function set_friend(seat) {
+        $('#seat-' + seat).addClass('friend');
+        $('#seat-' + seat + ' .action').html('friend');
+    }
+
+    function update_turn(action) {
+        if(action === "start") {
+            $('.seat:not(.my):not(.friend):not(.fired) .action').html("<input onclick='set_target(this.parentNode.parentNode.id.substring(\"seat-\".length))' type='button' value='Target me' />")
+
+            // you = $('#you')[0].innerHTML
+            // $('ul.table li input:not(:eq(' + you + ')):not(.fired)').attr("disabled", false)
+        } else if(action === "end") {
+            $('.seat:not(.my):not(.friend):not(.fired) .action').html('')
+        }
+    }
+
+    function update_powers(medium, high) {
+        // sets the class depending on how many friends I have left
+        var friends = $('.seat.friend:not(.fired)').length
+        $('#role').removeClass()
+        if(friends == high)
+            $('#role').addClass('high').html('Target or get targeted by the boss to win!')
+        else if(friends >= medium)
+            $('#role').addClass('medium').html('Target the boss to win!')
+        else
+            $('#role').html('Watch out for the boss')
+        // hide if I'm fired. TODO: expand also if I won, or am the boss
+        if ($('.seat.my.fired').length > 0)
+            $('#role').html('Try again?');
+    }
+
+    function end_game(outcome) {
+        // $('.seat').attr("disabled", true)
+        if(outcome === "win") {
+            update_flash("You won!")
+            $('.seat.my .action').html('Winner!')
+        } else if(outcome === "lose") {
+            update_flash("You lost!")
+        }
+    }
+
+    function set_target(target) {
+        if(socket.send({target: target}))
+            update_turn("end"); // can only set one target per turn
+    }
+
+    function disable_target(target) {
+        $('#seat-' + target +' .action input').attr("disabled", true)
+    }
+
+    function set_fired(target) {
+        // if was my friend, update power
+        $('#seat-' + target).addClass('fired'); // maybe .removeClass('friend')
+        $('#seat-' + target + ' .action').html('fired');
+        // TODO: If the fired was my friend, update my powers! 
+    }
+
+    function target(opponent){
+        if(socket.send({target: opponent}))
+            disableButtons();
+    }
+    
+  </script>
+</head>
+<body>
+  <div id="console"><div id="status"></div><div id="role"></div></div>  
+</body>
+</html>
