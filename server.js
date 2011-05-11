@@ -5,7 +5,7 @@ var http    = require('http'),
 
 server = utils.start_server(8080, './index.html')
  
-var max_players = 8
+var max_players = 3
 var boss = null
 var turns = 0
 var SUPERPOWERS = 3
@@ -17,15 +17,18 @@ var fired = [];
 var targets = [];
 var turn_target = {};
 var seconds_for_turn = 10;
-function seats_available() {return players.length < max_players;}
+
+function seats_available() {
+    return players.length < max_players;
+}
 
 io.listen(server).on('connection', function (client) {
 
-	client.send({nickname: {question: "What is your nickname?", suggest: ('' + client.sessionId).substring(0,5)}});
+	client.send({nickname: {question: "What is your nickname?", 
+	    suggest: ('' + client.sessionId).substring(0,5)}});
     
 	client.on('disconnect', function(){
-        client.broadcast({message: client.sessionId + ' disconnected' })
-	});
+        client.broadcast({message: client.sessionId + ' disconnected' })});
 
     // Listen to players' messages (so far only one: when they target someone)
     client.on('message', function(msg){ 
@@ -79,7 +82,6 @@ io.listen(server).on('connection', function (client) {
         for(var i = 0; i < players.length; i++) {
             var was_fired = (fired.indexOf('' + i) > -1);
             if(!was_fired) {
-                players[i].send({flash: "Turn " + turns + " started"});
                 players[i].send({turn: "start"});
             }
         }
@@ -120,7 +122,7 @@ io.listen(server).on('connection', function (client) {
             // console.log("Player " + player_pos + " targets " + target_pos)
             // listener.broadcast({message: player_pos + " has targeted " + target_pos});
             // TODO: the order is FIRST the boss? Or as they were assigned?
-            // for now is the arrival order I guess (associate arrays anyone?)
+            // for now is the order in which they pushed the buttons (fair?)
             var opponent = null
             if(player == boss) {opponent = target; opponent_pos=target_pos; boss_pos=player_pos}
             if(target == boss) {opponent = player; opponent_pos=player_pos; boss_pos=target_pos}
@@ -149,6 +151,7 @@ io.listen(server).on('connection', function (client) {
                     }
                     if (players.length - fired.length <= 1) {
                         boss.send({outcome: "win"})
+                        boss.broadcast({outcome: "lose"})
                         game_over = true
                     }
                 }
@@ -164,6 +167,10 @@ io.listen(server).on('connection', function (client) {
         if(game_over) {
             console.log("Game over")
             client.listener.broadcast({message: "Game over!"});
+
+            // Restart the game!
+            console.log("Game will restart in 10 seconds")
+            cp.spawn('sleep', [seconds_for_turn]).on('exit', restart_game);
         }
         else {// start next turn
             boss.broadcast({powers: {medium: POWERS, high: SUPERPOWERS}})
@@ -171,4 +178,20 @@ io.listen(server).on('connection', function (client) {
             start_turn()
         }        
     }
+
+    function restart_game(code) {
+        game_over = false;
+        turns = 0
+        fired = [];
+        for(var i = 0; i < players.length; i++)
+            targets[i] = [];
+        turn_target = {};
+        // Decide who is the boss
+        client.listener.broadcast({flash: "Deciding who is the boss"});
+        boss = players[Math.floor(Math.random()*max_players)]
+        boss.send({role: {is_boss: true}})
+        boss.broadcast({role: {is_boss: false}})
+        start_turn();
+    }
+
 });
